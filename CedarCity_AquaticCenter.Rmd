@@ -1,0 +1,135 @@
+---
+title: "Relationship of Cedar City Aquatic Center Admission Fees and Temperature"
+author: James Andersen
+output:
+  html_document:
+  toc: true
+  theme: united
+---
+
+# Introduction
+This works investigates the relationship of fees collected at the Cedar City Aquatic Center and the mean daily temperature in Cedar City.  An instinctive insight is that as the temperature increases more people will go to the Aquatic Center and thus the fees collected will have a positive relationship with mean temperature.
+
+## Source Data Preparation
+### Aquatic Center Fees
+Data from the Cedar City Aquatic center is collected from [the Utah Public Finance website](http://www.utah.gov/transparency/app.html?govLevel=CITY&entityId=377&fiscalYear=2016&transType=2&title1=Cities+and+Towns%3A+2016%3A+Revenue&title2=Cedar+City&title3=Cities+and+Towns%3A+Cedar+City%3A+2016%3A+Revenue) [^1] pulling the Revenue and filtering to the "AQUATIC CENTER" fund and the "FEE-ADMISSIONS" sub-category.
+
+```{r include=FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+```
+
+```{r}
+# Handle non-standard date format
+setClass('myDate')
+setAs("character","myDate", function(from) as.Date(from, format="%m/%d/%Y"))
+
+revClasses <- c("POSTING.DATE"="myDate")
+rev <- rbind(
+  read.csv("CedarCity_Revenue_2013.csv", header = TRUE, colClasses = revClasses),
+  read.csv("CedarCity_Revenue_2014.csv", header = TRUE, colClasses = revClasses),
+  read.csv("CedarCity_Revenue_2015.csv", header = TRUE, colClasses = revClasses),
+  read.csv("CedarCity_Revenue_2016.csv", header = TRUE, colClasses = revClasses)
+)
+```
+
+The dplyr library is used to filter and sum up multiple admission fees by day as well as rename the "POSTING.DATA" column to simply "date".
+```{r}
+aquaticCenterFees <- rev %>% 
+  filter(FUND1 == "AQUATIC CENTER", CAT2 == "FEES-ADMISSIONS") %>% 
+  select(date = POSTING.DATE, AMOUNT) %>%
+  group_by(date) %>%
+  summarise(fees = sum(AMOUNT))
+```
+
+### Temperature Data
+The temperature data used in the analysis comes from [Weather Underground](https://www.wunderground.com) which offers a historical weather API from which daily weather stats can be downloaded in chunks of about a year at a time.  For this project 5 data files covering the range of aquatic center data were obtained and concatenated together.  
+
+```{r}
+weather <- rbind(
+  read.csv("CedarCity_Weather1.csv", header = TRUE, colClasses = c("MST"="Date")),
+  read.csv("CedarCity_Weather2.csv", header = TRUE, colClasses = c("MST"="Date")),
+  read.csv("CedarCity_Weather3.csv", header = TRUE, colClasses = c("MST"="Date")),
+  read.csv("CedarCity_Weather4.csv", header = TRUE, colClasses = c("MST"="Date")),
+  read.csv("CedarCity_Weather5.csv", header = TRUE, colClasses = c("MST"="Date"))
+)
+```
+
+Again, dplyr is used to trim out several columns of data we're not using and to rename
+the "MST" date field to "date".
+```{r}
+meanTemp <- weather %>% 
+  select(date = MST, temp = Mean.TemperatureF, precip = PrecipitationIn)
+```
+
+### Combining Data and Final Prep
+The two data sources are combined into a single data frame by joining on the date and a week column is added which aids in binning the data for a less noisy visual presentation.
+
+```{r}
+data <- merge(meanTemp, aquaticCenterFees, by="date", all = TRUE)
+data$week <- as.Date(cut(data$date, breaks = "week", start.on.monday = FALSE))
+data$year <- format(data$date,"%Y")
+```
+
+## Data Visualization
+To give a sense of the data through time, the week bins are used to plot both the admission fees and temperature through time.
+```{r warning=FALSE}
+library(ggplot2)
+library(gridExtra)
+
+feesPlot <- ggplot(data = data, aes(week , fees)) + 
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = scales::dollar) + 
+  scale_x_date(date_breaks = "6 months", date_labels = "%b-%Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+tempPlot <- ggplot(data = data, aes(date, temp)) + 
+  geom_line(aes(group = year), stat = "identity") +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b-%Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+grid.arrange(feesPlot, tempPlot, ncol=2)
+
+```
+
+To begin to visualize the relationship of temperature and admission fees, the two are shown together in a scatterplot.
+```{r warning= FALSE}
+ggplot(data = data, aes(temp, fees)) + 
+  geom_point(stat = "identity") + 
+  #geom_line(data=data, aes(x=date, y=precip), colour="blue") +
+  scale_y_continuous(labels = scales::dollar) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+  
+## Significance of the Relationship
+### Pearson Correlation
+R's `cor.test` evaluates the null and alternative hypothesis:
+```{r}
+cor.test(data$temp, data$fees, use="pairwise", method="pearson")
+```
+
+We can perform a simple linear regression and determine the coefficients of the relationship.
+```{r}
+coef(lm(fees ~ temp, data = data))
+```
+
+And having shown the relationship to be significant, we can visualize the trend:
+```{r warning=FALSE}
+ggplot(data = data, aes(temp, fees)) + 
+  geom_point(stat = "identity") + 
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_y_continuous(labels = scales::dollar) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+However, the simple linear line doesn't really feel like a great fit.  Adding additional terms yeilds a better fit and seems to indicate that, as intuition would suggest, when the weather is nice outside e.g. 50 - 70 degrees F, people may be less inclined to visit the aquatic center then when it is either cooler or hotter.
+```{r}
+data <- merge(meanTemp, aquaticCenterFees, by="date")
+ggplot(data = data, aes(temp, fees)) + 
+  geom_point(stat = "identity") + geom_smooth(method = "lm", formula = y ~ x + I(x^2) + I(x^3), se = FALSE, data = data) +
+  scale_y_continuous(labels = scales::dollar) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+  [^1]: Note that data appears to be truncated at about 10,000 records per year.  I've requested a full dataset but have not yet received the data.
