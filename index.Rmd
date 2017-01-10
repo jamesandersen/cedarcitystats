@@ -8,7 +8,7 @@ output:
 ---
 
 # Introduction
-This works investigates the relationship of fees collected at the Cedar City Aquatic Center and the mean daily temperature in Cedar City.  An instinctive insight is that as the temperature increases more people will go to the Aquatic Center and thus the fees collected will have a positive relationship with mean temperature.
+This works investigates the relationship of fees collected at the Cedar City Aquatic Center and the mean daily temperature in Cedar City.  An instinctive insight is that as the temperature increases more people will go to the Aquatic Center and thus the fees collected will have a positive relationship with mean temperature.  This is primarily just a practice exercise in using/learning R to validate and visualize the relationship.
 
 ## Source Data Preparation
 ### Aquatic Center Fees
